@@ -1,0 +1,92 @@
+#!/bin/sh
+
+#  Copyright (C) 2016 Open Lab Athens.
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#  @license GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>
+#
+#
+#  Changes
+#
+#  15-8-2016: Rowan Thorpe <rowan@rowanthorpe.com>: Original commit
+
+#NB: example cron command to run every ... e.g. hour:
+# find /var/lib/espeak-mbrola-cache -type f -mtime +7 -delete
+
+cache_dir='/var/lib/espeak-mbrola-cache'
+
+set -e
+
+text="$1"
+voice="$2" # according to espeak
+rate="$3"
+file="$(readlink -f "$4")"
+speed="${5:-120}"
+pitch="${6:-60}"
+owner="$7"
+group="$8"
+mbrola_voice="${9:-$voice}" # setting this to "-" means don't use mbrola, use espeak voice (yuk)
+shift 4 # only first 4 are mandatory
+
+md5hash="$(printf '%s|%s|%s|%s|%s' "$text" "$voice" "$rate" "$speed" "$pitch" "$mbrola_voice" | md5sum - | cut -d' ' -f1)"
+firstchar="$(printf '%s\n' "$md5hash" | sed -e 's/^\(.\).*$/\1/')"
+cache_file="${cache_dir}/${firstchar}/${md5hash}.wav"
+
+#DEBUGGING:
+#printf '$file|$owner|$group: %s|%s|%s\n' "$file" "$owner" "$group" >&2
+#printf '$text|$voice|$rate|$speed|$pitch|$mbrola_voice: %s|%s|%s|%s|%s|%s\n' "$text" "$voice" "$rate" "$speed" "$pitch" "$mbrola_voice" >&2
+#printf '$md5hash (of "$text|$voice|$rate|$speed|$pitch|$mbrola_voice"): %s\n' "$md5hash" >&2
+#printf '$cache_file: %s\n' "$cache_file" >&2
+
+test -d "${cache_dir}/$firstchar" || mkdir "${cache_dir}/$firstchar"
+if test -e "$cache_file"; then
+    touch "$cache_file"
+else
+    # NB: in mbrola gr1 voice is buggy on some things and gr2 voice is buggy on others so we need multilevel fallbacks [facepalm]
+    trap '
+        rm -f "$cache_file" "$pho_file" "$snd_file" 2>/dev/null || :
+        if test "gr2" = "$voice"; then
+            if test "gr2" = "$mbrola_voice"; then
+                exec "$0" "$text" "$voice" "$rate" "$file" "$speed" "$pitch" "$owner" "$group" "gr1"
+            else
+                exec "$0" "$text" "greek" "$rate" "$file" "$speed" "$pitch" "$owner" "$group" "-"
+            fi
+        fi
+    ' EXIT
+    # NB: use tempfiles, not a pipeline, as there is no portable way to get exit status from non-last commands in the pipeline
+    if test '-' = "$mbrola_voice"; then
+        snd_file="$(mktemp -p /tmp 'XXXXXX.wav')"
+        espeak -s "$speed" -p "$pitch" -v "$voice" -w "$snd_file" "$text"
+    else
+        pho_file="$(mktemp -p /tmp 'XXXXXX.pho')"
+        espeak -s "$speed" -p "$pitch" -v "mb-$voice" -q --pho --phonout="$pho_file" "$text"
+        snd_file="$(mktemp -p /tmp 'XXXXXX.au')"
+        mbrola "/usr/share/mbrola/${mbrola_voice}/$mbrola_voice" "$pho_file" "$snd_file"
+        rm -f "$pho_file"
+    fi
+    # To calculate gain use => wcalc "20*log($vol_multiplier)/log(10)"
+    if test 'en1' = "$voice"; then # this voice is way quieter than the others
+        sox_suffix='gain 9.2'
+    else
+        sox_suffix=''
+    fi
+    sox "$snd_file" -r "$rate" "$cache_file" $sox_suffix
+    rm -f "$snd_file"
+    test -z "$owner" || chown "$owner" "$cache_file"
+    test -z "$group" || chgrp "$group" "$cache_file"
+    chmod 'u=rw,go=r' "$cache_file"
+    trap - EXIT
+fi
+ln -sfTn "$cache_file" "$file"

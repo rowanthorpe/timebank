@@ -1,0 +1,641 @@
+<!--
+
+  Copyright (C) 2016 Open Lab Athens.
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+  @license GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>
+
+
+  Changes
+
+  15-8-2016: Rowan Thorpe <rowan@rowanthorpe.com>: Original commit
+
+-->
+
+<?xml version="1.0"?>
+<document type="freeswitch/xml">
+  <X-PRE-PROCESS cmd="include" data="vars.xml"/>
+
+  <section name="configuration" description="Various Configuration">
+    <configuration name="acl.conf" description="Network Lists">
+      <network-lists>
+        <list name="$${default_provider}-auth" default="deny">
+          <node type="allow" cidr="$${default_provider_auth_network}"/>
+        </list>
+        <list name="$${default_provider}-upstream" default="deny">
+          <node type="allow" cidr="$${default_provider_upstream_network}"/>
+        </list>
+      </network-lists>
+    </configuration>
+    <configuration name="console.conf" description="Console Logger">
+      <mappings>
+        <map name="all" value="console,debug,info,notice,warning,err,crit,alert"/>
+        <!-- <map name="all" value="warning,err,crit,alert"/> -->
+      </mappings>
+      <settings>
+        <param name="colorize" value="true"/>
+        <param name="loglevel" value="$${console_loglevel}"/>
+      </settings>
+    </configuration>
+    <configuration name="db.conf" description="LIMIT DB Configuration">
+      <settings>
+        <param name="odbc-dsn" value="pgsql://hostaddr=127.0.0.1 dbname=freeswitch user=freeswitch password='---------' options='-c client_min_messages=NOTICE' application_name='freeswitch' connect_timeout=10"/>
+      </settings>
+    </configuration>
+    <configuration name="enum.conf" description="ENUM Module">
+      <settings>
+        <param name="default-root" value="e164.org"/>
+        <param name="default-isn-root" value="freenum.org"/>
+        <param name="query-timeout" value="10"/>
+        <param name="auto-reload" value="true"/>
+      </settings>
+<!--
+      <routes>
+        <route service="E2U+SIP" regex="sip:(.*)" replace="sofia/$${default_profile_name}_trunk/$1"/>
+      </routes>
+-->
+    </configuration>
+    <configuration name="event_socket.conf" description="Socket Client">
+      <settings>
+        <param name="nat-map" value="false"/>
+        <param name="listen-ip" value="127.0.0.1"/> <!-- e.g. value="::" -->
+        <param name="listen-port" value="7999"/>
+        <param name="password" value="$${default_password}"/>
+        <param name="apply-inbound-acl" value="loopback.auto"/>
+        <param name="stop-on-bind-error" value="true"/>
+      </settings>
+    </configuration>
+    <configuration name="ivr.conf" description="IVR menus">
+      <menus>
+<!--
+              greet-long="phrase:mainmenu_phrase_macro"
+              greet-short="phrase:short_mainmenu_phrase_macro"
+              invalid-sound="phrase:invalid_entry_macro"
+              exit-sound="phrase:goodbye_macro"
+              phrase_lang="en">
+-->
+<!--
+              greet-long="tts://flite|kal|Welcome to the IVR. Press 1 to hear your number and localtime. Press 2 for the time bank. Press 3 to hear music. Press 9 to exit."
+              greet-short="tts://flite|kal|Press 1 to hear your number and localtime. Press 2 for the time bank. Press 3 to hear music. Press 9 to exit."
+              invalid-sound="tts://flite|kal|Invalid entry"
+              tts-engine="flite"
+              tts-voice="kal"
+-->
+        <menu name="main"
+              greet-long="tts://tts_commandline|en1|Welcome to the IVR. Press 1 to hear your number and localtime. Press 2 for the time bank. Press 3 to hear music. Press 9 to exit."
+              greet-short="tts://tts_commandline|en1|Press 1 to hear your number and localtime. Press 2 for the time bank. Press 3 to hear music. Press 9 to exit."
+              invalid-sound="tts://tts_commandline|en1|Invalid entry"
+              timeout ="10000"
+              inter-digit-timeout="2000"
+              max-failures="3"
+              digit-len="1"
+              tts-engine="tts_commandline"
+              tts-voice="en1">
+<!--          <entry action="menu-play-sound" digits="1" param="say: Your number is ${caller_id_number} and the local time is now +${actime}."/> -->
+<!--          <entry action="menu-play-sound" digits="1" param="tts://tts_commandline|en1|Your number is ${caller_id_number} and the local time is now +${actime}."/> -->
+          <entry action="menu-exec-app" digits="1" param="set actime=${strftime(%H:%M)}"/>
+          <entry action="menu-exec-app" digits="1" param="speak Your number is ${caller_id_number} and the local time is ${actime}"/>
+<!--          <entry action="menu-sub" digits="2" param="timebank"/> -->
+          <entry action="menu-exec-app" digits="2" param="lua $${script_dir}/lua/timebank.lua"/>
+          <entry action="menu-play-sound" digits="3" param="$${sounds_dir}/music/default/8000/danza-espanola-op-37-h-142-xii-arabesca.wav"/>
+          <entry action="menu-exit" digits="9"/>
+        </menu>
+<!--
+        <menu name="timebank"
+              greet-long="tts://tts_commandline|en1|Welcome to the time bank reporting. Press 1 for teaching. Press 2 for home assistance. Press 3 for accounting and legal. Press 4 for healthcare. Press 5 for miscellaneous. Press 9 to exit. Press 0 to return to previous menu."
+              greet-short="tts://tts_commandline|en1|Press 1 for teaching. Press 2 for accounting and legal. Press 3 for healthcare. Press 4 for home assistance. Press 5 for miscellaneous. Press 9 to exit. Press 0 to return to previous menu."
+              invalid-sound="tts://tts_commandline|en1|Invalid entry"
+              timeout="10000"
+              inter-digit-timeout="2000"
+              max-failures="3"
+              digit-len="1"
+              tts-engine="tts_commandline"
+              tts-voice="en1">
+          <entry action="menu-exec-app" digits="1" param="lua $${script_dir}/lua/m_teaching.lua"/>
+          <entry action="menu-exec-app" digits="2" param="lua $${script_dir}/lua/m_acc.lua"/>
+          <entry action="menu-exec-app" digits="3" param="lua $${script_dir}/lua/m_health.lua"/>
+          <entry action="menu-exec-app" digits="4" param="lua $${script_dir}/lua/m_home.lua"/>
+          <entry action="menu-exec-app" digits="5" param="lua $${script_dir}/lua/m_misc.lua"/>
+          <entry action="menu-exit" digits="9"/>
+          <entry action="menu-back" digits="0"/>
+        </menu>
+-->
+      </menus>
+    </configuration>
+    <configuration name="local_stream.conf" description="Stream files from local dir">
+      <!-- fallback to default if requested moh class isn't found -->
+      <directory name="default" path="$${sounds_dir}/music/8000">
+        <param name="rate" value="8000"/>
+        <param name="shuffle" value="true"/>
+        <param name="channels" value="1"/>
+        <param name="interval" value="20"/>
+        <param name="timer-name" value="soft"/>
+        <!-- list of short files to break in with every so often -->
+        <!-- <param name="chime-list" value="file1.wav,file2.wav"/> -->
+        <!-- frequency of break-in (seconds) -->
+        <!-- <param name="chime-freq" value="30"/> -->
+        <!-- limit to how many seconds the file will play -->
+        <!-- <param name="chime-max" value="500"/> -->
+      </directory>
+      <directory name="moh/8000" path="$${sounds_dir}/music/8000">
+        <param name="rate" value="8000"/>
+        <param name="shuffle" value="true"/>
+        <param name="channels" value="1"/>
+        <param name="interval" value="20"/>
+        <param name="timer-name" value="soft"/>
+      </directory>
+      <directory name="moh/16000" path="$${sounds_dir}/music/16000">
+        <param name="rate" value="16000"/>
+        <param name="shuffle" value="true"/>
+        <param name="channels" value="1"/>
+        <param name="interval" value="20"/>
+        <param name="timer-name" value="soft"/>
+      </directory>
+      <directory name="moh/32000" path="$${sounds_dir}/music/32000">
+        <param name="rate" value="32000"/>
+        <param name="shuffle" value="true"/>
+        <param name="channels" value="1"/>
+        <param name="interval" value="20"/>
+        <param name="timer-name" value="soft"/>
+      </directory>
+      <directory name="moh/48000" path="$${sounds_dir}/music/48000">
+        <param name="rate" value="48000"/>
+        <param name="shuffle" value="true"/>
+        <param name="channels" value="1"/>
+        <param name="interval" value="10"/>
+        <param name="timer-name" value="soft"/>
+      </directory>
+    </configuration>
+    <configuration name="lua.conf" description="">
+      <settings>
+	<!-- <param name="module-directory" value="/usr/lib/x86_64-linux-gnu/lua/5.2/?.so"/> -->
+        <param name="script-directory" value="$${script_dir}/lua/?.lua"/>
+	<param name="script-directory" value="/usr/share/lua/5.1/?.lua"/>
+	<param name="script-directory" value="/usr/share/lua/5.2/?.lua"/>
+      </settings>
+    </configuration>
+    <configuration name="memcache.conf" description="memcache Configuration">
+      <settings>
+        <param name="memcache-servers" value="localhost"/> <!-- comma-separated list of servers -->
+      </settings>
+    </configuration>
+    <configuration name="modules.conf" description="Modules">
+      <modules>
+        <load module="mod_av"/>
+        <load module="mod_commands"/>
+        <load module="mod_console"/>
+        <load module="mod_curl"/>
+        <load module="mod_dialplan_xml"/>
+        <load module="mod_dptools"/>
+        <load module="mod_enum"/>
+        <load module="mod_event_socket"/>
+        <!-- <load module="mod_flite"/> -->
+        <load module="mod_local_stream"/>
+        <load module="mod_lua"/>
+        <load module="mod_memcache"/>
+        <load module="mod_native_file"/>
+        <load module="mod_odbc_cdr"/>
+        <!-- Freeswitch only supports python2, so still write everything in v3 but use
+             3to2 converter for freeswitch-specific stuff:
+             https://bitbucket.org/amentajo/lib3to2 -->
+        <!-- <load module="mod_python"/> -->
+        <!-- <load module="mod_say_en"/> -->
+        <load module="mod_shell_stream"/>
+        <load module="mod_sms"/>
+        <load module="mod_sndfile"/>
+        <load module="mod_sofia"/>
+        <load module="mod_ssml"/>
+        <load module="mod_spandsp"/> <!-- for G726-32 and G722 codecs -->
+        <load module="mod_syslog"/>
+        <load module="mod_timerfd"/>
+        <load module="mod_tone_stream"/>
+        <load module="mod_translate"/>
+	<load module="mod_tts_commandline"/>
+        <load module="mod_db"/>
+      </modules>
+    </configuration>
+    <configuration name="odbc_cdr.conf" description="ODBC CDR Configuration">
+      <settings>
+        <param name="odbc-dsn" value="pgsql://hostaddr=127.0.0.1 dbname=freeswitch user=freeswitch password='---------' options='-c client_min_messages=NOTICE'"/>
+        <!-- global value can be "a-leg", "b-leg", "both" (default is "both") -->
+        <param name="log-leg" value="both"/>
+        <!-- value can be "always", "never", "on-db-fail" -->
+        <param name="write-csv" value="on-db-fail"/>
+        <!-- location to store csv copy of CDR -->
+        <param name="csv-path" value="/var/log/freeswitch/odbc_cdr"/>
+        <!-- if "csv-path-on-fail" is set, failed INSERTs will be placed here as CSV files otherwise they will be placed in "csv-path" -->
+        <param name="csv-path-on-fail" value="/var/log/freeswitch/odbc_cdr/failed"/>
+        <!-- dump SQL statement after leg ends -->
+        <param name="debug-sql" value="false"/>
+      </settings>
+      <tables>
+        <table name="cdr">
+          <field name="call_id" chan-var-name="call_uuid"/>
+          <field name="orig_id" chan-var-name="uuid"/>
+          <field name="term_id" chan-var-name="sip_call_id"/>
+          <field name="ip" chan-var-name="sip_network_ip"/>
+          <field name="ip_internal" chan-var-name="sip_via_host"/>
+          <field name="codec" chan-var-name="read_codec"/>
+          <field name="direct_gateway" chan-var-name="sip_req_host"/>
+          <field name="redirect_gateway" chan-var-name="sip_redirect_contact_host_0"/>
+          <field name="caller_id" chan-var-name="sip_from_user"/>
+          <field name="tel_number" chan-var-name="sip_req_user"/>
+          <field name="tel_number_full" chan-var-name="sip_to_user"/>
+          <field name="sip_endpoint_disposition" chan-var-name="endpoint_disposition"/>
+          <field name="sip_current_application" chan-var-name="current_application"/>
+        </table>
+      </tables>
+    </configuration>
+    <configuration name="post_load_modules.conf" description="Modules">
+      <modules>
+      </modules>
+    </configuration>
+    <configuration name="python.conf" description="python configuration">
+      <settings>
+        <!-- For serving configuration... -->
+        <!-- <param name="xml-handler-script" value="mypackage.mymodule"/> -->
+        <!-- <param name="xml-handler-bindings" value="dialplan"/> -->
+
+        <!--
+            startup-script is a py module, launched at startup and may live forever
+            There can be multiple lines, one for each script
+        -->
+        <!-- <param name="startup-script" value="startup_script_1"/> -->
+        <!-- <param name="startup-script" value="startup_script_2"/> -->
+      </settings>
+    </configuration>
+    <configuration name="sofia.conf" description="sofia Endpoint">
+      <global_settings>
+        <param name="log-level" value="0"/>
+        <param name="auto-restart" value="true"/>
+        <param name="debug-presence" value="0"/>
+      </global_settings>
+      <profiles>
+        <!--
+        <profile name="$${default_profile_name}_local">
+          <gateways>
+          </gateways>
+          <settings>
+          </settings>
+        </profile>
+        -->
+        <profile name="$${default_profile_name}_trunk">
+          <gateways>
+            <X-PRE-PROCESS cmd="include" data="accounts/default_provider.xml"/>
+          </gateways>
+          <settings>
+            <param name="track-calls" value="true"/>
+            <param name="odbc-dsn" value="pgsql://hostaddr=127.0.0.1 dbname=freeswitch user=freeswitch password='---------' options='-c client_min_messages=NOTICE' application_name='freeswitch' connect_timeout=10"/>
+            <param name="sql-in-transactions" value="true"/>
+            <param name="debug" value="0"/>
+            <param name="dialplan" value="XML"/>
+            <!-- <param name="sip-trace" value="no"/> -->
+
+            <param name="user-agent-string" value="FreeSWITCH"/>
+            <param name="context" value="public"/>
+            <param name="auth-calls" value="$${default_provider_auth_calls}"/>
+            <!-- <param name="auth-all-packets" value="false"/> -->
+            <param name="apply-inbound-acl" value="$${default_provider}-upstream"/>
+            <param name="apply-register-acl" value="$${default_provider}-auth"/>
+            <param name="disable-register" value="true"/>
+            <!-- <param name="challenge-realm" value="auto_from"/> -->
+            <!-- <param name="manage-presence" value="false"/> -->
+            <!-- <param name="manage-shared-appearance" value="true"/> -->
+            <!-- <param name="nonce-ttl" value="60"/> -->
+
+            <param name="bind-params" value="transport=tcp"/>
+            <param name="rtp-ip" value="$${public_ip_v4}"/>
+            <param name="sip-ip" value="$${public_ip_v4}"/>
+            <param name="sip-port" value="$${default_provider_sip_port}"/>
+            <param name="ext-rtp-ip" value="$${public_ip_v4}"/>
+            <param name="ext-sip-ip" value="$${public_ip_v4}"/>
+            <!-- <param name="tls-version" value="tlsv1.2,tlsv1.1,tlsv1"/> -->
+
+            <param name="inbound-codec-prefs" value="$${codec_prefs}"/>
+            <param name="outbound-codec-prefs" value="$${codec_prefs}"/>
+            <param name="inbound-codec-negotiation" value="greedy"/>
+            <param name="outbound-codec-negotiation" value="greedy"/>
+
+            <param name="enable-timer" value="true"/>
+            <param name="use-rtp-timer" value="true"/>
+            <param name="rtp-timer-name" value="soft"/>
+            <param name="rtp-timeout-sec" value="300"/>
+            <param name="rtp-hold-timeout-sec" value="1800"/>
+            <param name="session-timeout" value="300"/>
+            <!-- <param name="minimum-session-expires" value="120"/> -->
+
+            <param name="hold-music" value="$${hold_music}"/>
+            <param name="dtmf-type" value="rfc2833"/>
+            <!-- <param name="rfc2833-pt" value="101"/> -->
+            <!-- <param name="dtmf-duration" value="100"/> -->
+            <!-- <param name="vad" value="out"/> -->
+            <!-- <param name="max-proceeding" value="3"/> -->
+          </settings>
+        </profile>
+      </profiles>
+    </configuration>
+    <configuration name="ssml.conf" description="SSML configuration">
+      <tts-voices>
+        <voice name="tcg" language="el-GR" gender="male" prefix="tts://tts_commandline|gr2|"/>
+        <voice name="tce" language="en-US" gender="male" prefix="tts://tts_commandline|en1|"/>
+<!--
+        <voice name="kal" language="en-US" gender="male" prefix="tts://flite|kal|"/>
+        <voice name="slt" language="en-US" gender="female" prefix="tts://flite|slt|"/>
+        <voice name="rms" language="en-US" gender="male" prefix="tts://flite|rms|"/>
+        <voice name="awb" language="en-US" gender="male" prefix="tts://flite|awb|"/>
+-->
+      </tts-voices>
+<!--
+      <say-voices>
+        <voice name="callie" language="en-US" gender="female" prefix="$${sounds_dir}/en/us/callie/"/>
+      </say-voices>
+      <language-map>
+        <language iso="en-US" say-module="en" language="en"/>
+      </language-map>
+      <macros>
+        <macro name="cardinal" method="pronounced" type="number"/>
+        <macro name="characters" method="pronounced" type="name_spelled"/>
+      </macros>
+-->
+    </configuration>
+    <configuration name="switch.conf" description="Core Configuration">
+      <cli-keybindings>
+        <key name="1" value="help"/>
+        <key name="2" value="status"/>
+        <!-- <key name="3" value="pa answer"/> -->
+        <!-- <key name="4" value="pa hangup"/> -->
+        <key name="5" value="sofia status"/>
+        <key name="6" value="reloadxml"/>
+        <key name="7" value="console loglevel 0"/>
+        <key name="8" value="console loglevel 7"/>
+        <key name="9" value="sofia status profile $${default_profile_name}_trunk"/>
+        <key name="10" value="fsctl pause"/>
+        <key name="11" value="fsctl resume"/>
+        <key name="12" value="version"/>
+      </cli-keybindings>
+      <settings>
+        <!--
+          NB: I configured the core state db as persistent with postgres.
+
+              To speed up core (and spare the VM host's SSDs lots of wear-and-tear) you can
+              configure core state DB as sqlite in RAM. That means losing state on a restart
+              though, and makes it harder to access (e.g. with the REST interface I configured
+              with postgres and nginx). Configure it like so:
+
+                  <param name="core-db-dsn" value="sqlite:///dev/shm/freeswitch-core.db"/>
+
+              Using postgres is still much better than sqlite directly in files on disk (due to
+              caching, etc). Database-using modules are configured to use postgres, but if any
+              of them don't need state (and RAM is big enough) they could be put in
+              sqlite-on-RAM instead...
+        -->
+        <param name="core-db-dsn" value="pgsql://hostaddr=127.0.0.1 dbname=freeswitch user=freeswitch password='---------' options='-c client_min_messages=NOTICE' application_name='freeswitch' connect_timeout=10"/>
+        <param name="core-recovery-db-dsn" value="pgsql://hostaddr=127.0.0.1 dbname=freeswitch user=freeswitch password='---------' options='-c client_min_messages=NOTICE' application_name='freeswitch' connect_timeout=10"/>
+        <param name="colorize-console" value="true"/>
+        <param name="max-sessions" value="20"/>
+        <param name="sessions-per-second" value="5"/>
+        <param name="crash-protection" value="false"/>
+        <param name="dump-cores" value="no"/>
+        <param name="rtp-start-port" value="8000"/>
+        <param name="rtp-end-port" value="8100"/>
+        <param name="enable-softtimer-timerfd" value="true"/>
+        <!-- <param name="loglevel" value="debug"/> -->
+      </settings>
+    </configuration>
+    <configuration name="syslog.conf" description="Syslog Logger">
+      <mappings>
+        <!-- <map name="all" value="console,debug,info,notice,warning,err,crit,alert"/> -->
+        <map name="all" value="warning,err,crit,alert"/>
+      </mappings>
+      <settings>
+        <param name="facility" value="user"/>
+        <param name="ident" value="freeswitch"/>
+        <param name="loglevel" value="$${syslog_loglevel}"/>
+        <param name="uuid" value="true"/>
+      </settings>
+    </configuration>
+    <configuration name="translate.conf" description="Number Translation Rules">
+      <profiles>
+        <!--
+        <profile name="US">
+          <rule regex="^\+(\d+)$" replace="$1"/>
+          <rule regex="^(1[2-9]\d{2}[2-9]\d{6})$" replace="$1"/>
+          <rule regex="^([2-9]\d{2}[2-9]\d{6})$" replace="1$1"/>
+          <rule regex="^([2-9]\d{6})$" replace="1${areacode}$1"/>
+          <rule regex="^011(\d+)$" replace="$1"/>
+        </profile>
+        <profile name="GB">
+          <rule regex="^\+(\d+)$" replace="$1"/>
+          <rule regex="^$" replace="$1"/>
+        </profile>
+        <profile name="HK">
+          <rule regex="\+(\d+)$" replace="$1"/>
+          <rule regex="^(852\d{8})$" replace="$1"/>
+          <rule regex="^(\d{8})$" replace="852$1"/>
+        </profile>
+        -->
+        <profile name="GR">
+          <rule regex="^\+(\d+)$" replace="$1"/>
+	  <rule regex="^00(\d+)$" replace="$1"/>
+	  <rule regex="^(\d{7,10})$" replace="30$1"/>
+	  <rule regex="^(.*)$" replace="$1"/>
+        </profile>
+      </profiles>
+      <!--
+        <profile name="">
+          <rule regex="^\+(\d+)$" replace="$1"/>
+          <rule regex="^$" replace="$1"/>
+        </profile>
+      -->
+    </configuration>
+    <configuration name="tts_commandline.conf" description="TextToSpeech Commandline configuration">
+      <settings>
+        <param name="command" value="/usr/local/bin/tts_cache ${text} ${voice} ${rate} ${file} 120 60 freeswitch freeswitch"/>
+      </settings>
+    </configuration>
+    <!--
+    <configuration name="portaudio.conf" description="Soundcard Endpoint">
+      <settings>
+        <param name="debug" value="0"/>
+        <param name="ring-file" value="tone_stream://%(2000,4000,440.0,480.0);loops=20"/>
+        <param name="ring-interval" value="5"/>
+        <param name="hold-file" value="$${hold_music}"/>
+        <param name="timer-name" value="soft"/>
+        <param name="dialplan" value="XML"/>
+        <param name="sample-rate" value="48000"/>
+        <param name="codec-ms" value="20"/>
+        < ! - - <param name="cid-name" value="$${outbound_caller_name}"/> - - >
+        < ! - - <param name="cid-num" value="$${outbound_caller_number}"/> - - >
+      </settings>
+    </configuration>
+    <configuration name="xml_rpc.conf" description="XML RPC">
+      <settings>
+        <param name="http-port" value="8080"/>
+        <param name="auth-realm" value="freeswitch"/>
+        <param name="auth-user" value="freeswitch"/>
+        <param name="auth-pass" value="freeswitch"/>
+        <param name="commands-to-log" value=".*"/>
+      </settings>
+    </configuration>
+    -->
+  </section>
+
+  <section name="chatplan" description="Regex/XML Chatplan">
+    <context name="public">
+      <extension name="main">
+        <condition field="to" expression="^($${did_number})$">
+<!--          <action application="curl" data="https://db.[domain]:8443/api/v1/sms_replies/ .... [headers|json] post"/> -->
+<!--          <action application="fire" data=""/> -->
+          <action application="lua" data="incoming_sms.lua"/>
+        </condition>
+      </extension>
+    </context>
+  </section>
+
+  <section name="dialplan" description="Regex/XML Dialplan">
+    <context name="public">
+      <extension name="main">
+        <condition field="destination_number" expression="^($${did_number})$">
+          <action application="translate" data="${caller_id_number} GR"/>
+          <action application="set" data="session_in_hangup_hook=true"/>
+          <!--
+	  <action application="set_audio_level" data="write 3"/>
+          <action application="set_audio_level" data="read 3"/>
+          -->
+          <!-- <action application="lua" data="$${script_dir}/lua/timebank.lua"/> -->
+          <!-- testing begin -->
+	  <action application="answer"/>
+	  <action application="sleep" data="1000"/>
+          <action application="lua" data="$${script_dir}/lua/auth.lua"/>
+          <action application="set" data="actime=${strftime(%H:%M)}"/>
+          <action application="ivr" data="main"/>
+          <action application="speak" data="Goodbye."/>
+	  <action application="hangup"/>
+          <!-- testing end -->
+        </condition>
+      </extension>
+<!--      <extension name="say_time"> -->
+<!--        <action application="db" data="insert/received/call/${caller_id_number}"/> -->
+<!--
+        <action application="set_audio_level" data="write 4"/>
+        <action application="set_audio_level" data="read 4"/>
+        <action application="set" data="actime=${strftime(%H:%M)}"/>
+        <action application="set" data="tts_engine=tts_commandline"/>
+        <action application="set" data="tts_voice=en1"/>
+        <action application="speak" data="Hello, your number is ${caller_id_number} and the local time is now +${actime}."/>
+      </extension>
+-->
+      <!--
+      <extension name="public_extensions">
+        <condition field="$${auto_answer}" expression="^true$"/>
+        <condition field="destination_number" expression="^($${did_number})$">
+          <action application="info"/>
+          <action application="bridge" data="portaudio/auto_answer"/>
+        </condition>
+      </extension>
+      <extension name="public_extensions">
+        <condition field="${sip_to_params}" expression="intercom=true"/>
+        <condition field="${alert_info}" expression="Ring;Answer"/>
+        <condition field="destination_number" expression="^($${did_number})$">
+          <action application="info"/>
+          <action application="bridge" data="portaudio/auto_answer"/>
+        </condition>
+      </extension>
+      <extension name="public_extensions">
+        <condition field="destination_number" expression="^($${did_number})$">
+          <action application="info"/>
+          <action application="set" data="ringback=${us-ring}"/>
+          <action application="pre_answer"/>
+          <action application="bridge" data="portaudio"/>
+        </condition>
+      </extension>
+      -->
+    </context>
+    <!--
+    <context name="default">
+      <extension name="codec_and_sip_uri">
+        <condition field="destination_number" expression="^sip:(.*):(.*)$">
+          < ! - - <action application="set" data="origination_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_number=$${did_number}"/> - - >
+          < ! - - <action application="set" data="sip_contact_user=$${did_number}"/> - - >
+          <action application="bridge" data="{absolute_codec_string=$1,sip_contact_user=$${did_number},origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/$${default_profile_name}_trunk/$2"/>
+          < ! - - <action application="bridge" data="{absolute_codec_string=$1}sofia/gateway/$${default_gateway}/$2;transport=udp"/> - - >
+          < ! - - <action application="bridge" data="{absolute_codec_string=$1,origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/gateway/$${default_gateway}/$2"/> - - >
+        </condition>
+      </extension>
+      <extension name="sip_uri">
+        <condition field="destination_number" expression="^sip:(.*)$">
+          < ! - - <action application="set" data="origination_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_number=$${did_number}"/> - - >
+          < ! - - <action application="set" data="sip_contact_user=$${did_number}"/> - - >
+          <action application="bridge" data="{sip_contact_user=$${did_number},origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/$${default_profile_name}_trunk/$1"/>
+          < ! - - <action application="bridge" data="sofia/gateway/$${default_gateway}/$1;transport=udp"/> - - >
+          < ! - - <action application="bridge" data="{origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/gateway/$${default_gateway}/$1"/> - - >
+        </condition>
+      </extension>
+      <extension name="codec_and_number">
+        <condition field="destination_number" expression="^(.*):(.*)@(.*)$">
+          < ! - - <action application="set" data="origination_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_number=$${did_number}"/> - - >
+          < ! - - <action application="set" data="sip_contact_user=$${did_number}"/> - - >
+          <action application="bridge" data="{absolute_codec_string=$1,sip_contact_user=$${did_number},origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/$${default_profile_name}_trunk/$2"/>
+          < ! - - <action application="bridge" data="{absolute_codec_string=$1}sofia/gateway/$3/$2;transport=udp"/> - - >
+          < ! - - <action application="bridge" data="{absolute_codec_string=$1,origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/gateway/$3/$2"/> - - >
+        </condition>
+      </extension>
+      <extension name="number">
+        <condition field="destination_number" expression="^(.*)@(.*)$">
+          < ! - - <action application="set" data="origination_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_number=$${did_number}"/> - - >
+          < ! - - <action application="set" data="sip_contact_user=$${did_number}"/> - - >
+          <action application="bridge" data="{sip_contact_user=$${did_number},origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/$${default_profile_name}_trunk/$1"/>
+          < ! - - <action application="bridge" data="sofia/gateway/$2/$1;transport=udp"/> - - >
+          < ! - - <action application="bridge" data="{origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/gateway/$2/$1"/> - - >
+        </condition>
+      </extension>
+      <extension name="number">
+        <condition field="destination_number" expression="^(.*)$">
+          < ! - - <action application="set" data="origination_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_name=$${did_number}"/> - - >
+          < ! - - <action application="set" data="effective_caller_id_number=$${did_number}"/> - - >
+          < ! - - <action application="set" data="sip_contact_user=$${did_number}"/> - - >
+          <action application="bridge" data="{sip_contact_user=$${did_number},origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/$${default_profile_name}_trunk/$1"/>
+          < ! - - <action application="bridge" data="sofia/gateway/$${default_gateway}/$1;transport=udp"/> - - >
+          < ! - - <action application="bridge" data="{origination_caller_id_name=$${did_number},origination_caller_id_number=$${did_number}}sofia/gateway/$${default_gateway}/$1"/> - - >
+        </condition>
+      </extension>
+    </context>
+    -->
+  </section>
+
+  <section name="phrases" description="Speech Phrase Management">
+    <macros>
+      <language name="en" tts_engine="tts_commandline" tts_voice="en1">
+<!--
+        <macro name="tts-timeleft">
+          <input pattern="(\d+):(\d+)">
+            <action function="speak-text" data="You have $1 minutes, $2 seconds remaining $strftime(%Y-%m-%d)"/>
+          </input>
+        </macro>
+-->
+      </language>
+    </macros>
+  </section>
+
+</document>

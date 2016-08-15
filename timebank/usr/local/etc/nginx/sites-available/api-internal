@@ -1,0 +1,910 @@
+#  Copyright (C) 2016 Open Lab Athens.
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#  @license GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>
+#
+#
+#  Changes
+#
+#  15-8-2016: Rowan Thorpe <rowan@rowanthorpe.com>: Original commit
+
+server {
+	listen                                    [::]:8200 ipv6only=off deferred backlog=4096 default_server;
+	server_name                               api-internal;
+	include                                   snippets/location/protect-system-files.conf;
+	include                                   snippets/location/well-known-dir.conf;
+	more_set_headers                          "cache-control: no-store";
+#	more_set_headers                          "vary: origin,host,authorization,apikey";
+	more_clear_headers                        "vary";
+
+	location = /favicon.ico {
+		include                           snippets/directive-only/logging-minimal.conf;
+		deny                              all;
+	}
+
+	location = /robots.txt {
+		include                           snippets/directive-only/acl-methods-hg.conf;
+		include                           snippets/directive-only/limit-slow.conf;
+		include                           snippets/directive-only/logging-minimal.conf;
+		expires                           1h;
+		try_files                         $uri =404;
+	}
+
+#### API
+
+#TODO: (but use includes, like for other api location blocks)
+#	location ^~ /v1/freeswitch/recovery {
+#		include                   snippets/directive-only/acl-methods-hgo.conf;
+#		include                   snippets/directive-only/api-general.conf;
+#		rds_json                  on;
+#		postgres_escape           $title   $arg_title;
+#		postgres_escape           $body    $arg_body;
+#		postgres_query            HEAD GET "SELECT * FROM recovery";
+#		#postgres_query           POST     "INSERT INTO recovery (..., ...) VALUES($..., $...) RETURNING *";
+#		#postgres_rewrite         POST     changes 201;
+#		postgres_pass             freeswitch;
+#	}
+#	location ~ ^/v1/freeswitch/recovery/(?<id>\d+) {
+#		include                   snippets/directive-only/acl-methods-hgud.conf;
+#		include                   snippets/directive-only/api-general.conf;
+#		rds_json                  on;
+#		postgres_escape           $escaped_id $id;
+#		postgres_escape           $title      $arg_title;
+#		postgres_escape           $body       $arg_body;
+#		postgres_query            HEAD GET    "SELECT * FROM recovery WHERE id=$escaped_id";
+#		postgres_rewrite          HEAD GET    no_rows 410;
+#		#postgres_query           PUT         "UPDATE recovery SET ...=$..., ...=$... WHERE id=$escaped_id RETURNING *";
+#		#postgres_rewrite         PUT         no_changes 410;
+#		postgres_query            DELETE      "DELETE FROM recovery WHERE id=$escaped_id";
+#		postgres_rewrite          DELETE      no_changes 410;
+#		postgres_rewrite          DELETE      changes 204;
+#		postgres_pass             freeswitch;
+#	}
+#
+#	location /v1/memcached/status {
+#		#TODO
+#	}
+#	location /v1/memcached {
+#		include                   snippets/directive-only/acl-methods-hgo.conf;
+#		include                   snippets/directive-only/api-general.conf;
+#		set                       $memcached_key "$uri?$args";
+#		memcached_pass            memcached;
+#	}
+
+## Shared mem use with check for server restart (lost data)
+#	local blah = ngx.shared.blah
+#	local master_id, err = blah:get("nginx_master_id")
+#	if not master_id then
+#		ngx.log(ngx.CRIT, "error getting the nginx_master_id: " .. err)
+#		ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
+#	end
+#	local myval = blah:get(myval)
+#	... if master_id == [input].master_id ...
+
+### JWT
+
+#NB: This single url must *not* be behind Kong JWT-auth, in order to gain auth in the first place. Put all other urls behind JST-auth.
+#	location ~ ^/v1/(?<table_name>[a-zA-Z][a-zA-Z0-9_]*)/_session/(?<login_type>admin|user)/(?<user_name>[a-zA-Z][a-zA-Z0-9_]*)/?$ {
+#		include                   snippets/directive-only/acl-methods-o.conf;
+#		include                   snippets/directive-only/api-general.conf;
+#		content_by_lua_block {
+#			local table_name, user_name = ngx.var.table_name, ngx.var.user_name
+#			ngx.req.read_body()
+#			local js = js.new() -- use separate cjson module table per preemptive thread (helps or hinders speed here? - benchmark...)
+#			local params = js.decode(ngx.var.request_body)
+#			if not params then
+#				ngx.log(ngx.ERR, "error getting params")
+#				ngx.exit(ngx.HTTP_BAD_REQUEST)
+#			elseif not params.secret or not params.device then
+#				ngx.log(ngx.ERR, "param not present")
+#				ngx.exit(ngx.HTTP_BAD_REQUEST)
+#			elseif not string.match(params.secret, '^[a-zA-Z0-9+/,:!~_=-]+$') or not string.match(params.device, '^[a-zA-Z][a-zA-Z0-9_]*$') then
+#				ngx.log(ngx.ERR, "invalid param")
+#				ngx.exit(ngx.HTTP_BAD_REQUEST)
+#			end
+#			-- NB: "secret" should be client-bcrypted, we server-bcrypt too, replace params.secret ASAP to minimise initial version's time in-mem
+#			params.secret = bcrypt.digest(params.secret, bcrypt_rounds)
+#			secret = params.secret
+#			if not secret then
+#				ngx.log(ngx.CRIT, "failed to bcrypt-hash a secret")
+#				ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
+#			end
+#			device = params.device
+#			-- TODO: when kong and backend merged in same nginx process, use internal (C) request rather than full HTTP request
+#			local http = http.new()
+#			http:set_timeout(500)
+#			local req_table = {
+#				version = 1.1,
+#				method = 'GET',
+#				headers = {
+#					['Content-Type'] = 'application/json',
+#					['Accept-Encoding'] = 'application/json',
+#				},
+#				path = '/consumers/' .. table_name .. '-' .. login_type .. '/jwt/' .. user_name .. '-' .. device,
+#			}
+#			http:connect(kong_admin_host, kong_admin_port)
+#			local result, err = http:request(req_table)
+#			if not result then
+#				ngx.log(ngx.NOTICE, 'GET subrequest for jwt-user failed: ' .. err)
+#				ngx.exit(ngx.HTTP_UNAUTHORIZED)
+#			end
+#			local reader = result.body_reader
+#			local buffer = ''
+#			repeat
+#				local chunk, err = reader(8192)
+#				if err then
+#					ngx.log(ngx.CRIT, 'reading subrequest output failed: ' .. err)
+#					ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
+#				end
+#				if chunk then
+#					buffer = buffer .. chunk.body
+#				end
+#			until not chunk
+#			local ok, err = http:set_keepalive() -- should fall back to close() where needed
+#			if not ok then
+#				ngx.log(ngx.NOTICE, "failed to set-keepalive-or-close subrequest: " .. err)
+#			end
+#			local stored_secret = js.decode(buffer).secret
+#			if stored_secret:byte() == ('-'):byte() then -- in utf8 '-' is only one byte
+#				stored_secret = stored_secret:byte(2, -1)
+#				req_table.method = 'PATCH'
+#				req_table.body = '{"secret":' .. js.encode(stored_secret) .. '}'
+#				http:connect(kong_admin_host, kong_admin_port)
+#				local result, err = http:request(req_table)
+#				if not result or result.status ~= ngx.HTTP_OK then
+#					ngx.log(ngx.NOTICE, 'PATCH subrequest for jwt-user failed: ' .. err)
+#					ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
+#				end
+#			end
+#			if secret == stored_secret then
+#				-- TODO: check if need to base64 encode these for kong's sake (or if jst:sign does it by default)
+#				local token = jwt:sign(
+#					js.encode(secret),
+#					{
+#						header={typ="JWT", alg="HS256"},
+#						payload={iss=js.encode(key), exp=js.encode(..now+XX..), nbf=js.encode(..now-XX..)}, -- TODO (as numbers or strings)?
+#					}
+#				)
+#				ngx.status = ngx.HTTP_CREATED
+#				ngx.print(token)
+#			else
+#				ngx.log(ngx.NOTICE, "invalid authorization attempt for " .. login_type .. ' ' .. key)
+#				ngx.exit(ngx.HTTP_UNAUTHORIZED)
+#			end
+#		}
+#	}
+
+#NB: This goes behind Kong JWT-auth, so no need to validate here, just do the actions
+#	location ~ ^/v1/(?<table_name>[a-zA-Z][a-zA-Z0-9_]*)/_session/(?<login_type>admin|user)/(?<user_name>[a-zA-Z][a-zA-Z0-9_]*)/(?<device>[a-zA-Z][a-zA-Z0-9_]*)/?$ {
+#		include                   snippets/directive-only/acl-methods-ud.conf;
+#		include                   snippets/directive-only/api-general.conf;
+#		content_by_lua_block {
+#			local method = ngx.var.request_method
+#			local req_table = {
+#				version = 1.1,
+#				method = 'GET',
+#				headers = {
+#					['Content-Type'] = 'application/json',
+#					['Accept-Encoding'] = 'application/json',
+#				},
+#				path = '/consumers/' .. table_name .. '-' .. login_type .. '/jwt/' .. user_name .. '-' .. device,
+#			}
+#			if method == 'DELETE' then
+#......... -- TODO prepend '-' to secret in kong here
+#			local http = http.new()
+#			http:set_timeout(500)
+#			http:connect("127.0.0.1", 8101)
+#			local result, err = http:request(req_table)
+#			if not result then
+#				ngx.log(ngx.NOTICE, 'subrequest for jwt-user failed: ' .. err)
+#				ngx.exit(ngx.HTTP_UNAUTHORIZED)
+#			end
+#			local reader = result.body_reader
+#			local buffer = ''
+#			repeat
+#				local chunk, err = reader(8192)
+#				if err then
+#					ngx.log(ngx.CRIT, 'reading subrequest output failed: ' .. err)
+#					ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
+#				end
+#				if chunk then
+#					buffer = buffer .. chunk.body
+#				end
+#			until not chunk
+#			local ok, err = http:set_keepalive() -- should fall back to close() where needed
+#			if not ok then
+#				ngx.log(ngx.NOTICE, "failed to set-keepalive-or-close subrequest: " .. err)
+#			end
+#.........
+#			else -- method == 'PUT'
+#......... -- TODO get secret, sign and output new token
+#			end
+#		}
+#	}
+
+#	location ~ ^/v1/(?<table>[a-zA-Z_][a-zA-Z0-9_]+)/_admin/user/?$ {
+#		include                   snippets/directive-only/acl-methods-hgo.conf;
+#		include                   snippets/directive-only/api-general.conf;
+#		content_by_lua_block {
+#			kong_admin_method = ngx.var.request_method
+#			if kong_admin_method == "POST" then
+#				ngx.req.read_body()
+#				local params = js.decode(ngx.var.request_body)
+#				if not params then
+#					ngx.log(ngx.ERR, "error getting post args")
+#					ngx.exit(ngx.HTTP_BAD_REQUEST)
+#				elseif not params.name or not params.pwdhash then
+#					ngx.log(ngx.ERR, "post arg not present")
+#					ngx.exit(ngx.HTTP_BAD_REQUEST)
+#				elseif not string.match(params.name, '^[a-zA-Z_]+$') or not string.match(params.pwdhash, '^[a-zA-Z0-9+/,:!~_=-]+$') then
+#					ngx.log(ngx.ERR, "invalid post arg")
+#					ngx.exit(ngx.HTTP_BAD_REQUEST)
+#				elseif params.admin and params.admin ~= 'true' and params.admin ~= 'false' then
+#					ngx.log(ngx.ERR, "invalid post arg")
+#					ngx.exit(ngx.HTTP_BAD_REQUEST)
+#				end
+#				local is_admin, name, pwdhash
+#				if params.admin == 'true' then
+#					is_admin = true
+#				else
+#					is_admin = false
+#				end
+#				name = params.name
+#				-- pwdhash is a server-side hash of the (hopefully already client-side-hashed) password
+#				pwdhash = bcrypt.digest(params.pwdhash, 12)
+#				kong_admin_path = '/consumers/' .. ngx.var.table .. '_' .. is_admin and 'admin' or 'user' .. '/jwt'
+#				kong_admin_body = '{"key":' .. js.encode(name) .. ',"secret":' .. js.encode(pwdhash) .. ',"algorithm":"HS256"}'
+#				kong_admin_headers = {
+#					['Content-Type'] = 'application/json',
+#					['Accept-Encoding'] = 'application/json'
+#				}
+#			else
+#				kong_admin_url_user = '/consumers/' .. ngx.var.table .. '_user/jwt'
+#				kong_admin_url_admin = '/consumers/' .. ngx.var.table .. '_admin/jwt'
+#			end
+#			local result, err
+#			local req_table = {
+#				version = 1.1,
+#				method = kong_admin_method,
+#				headers = kong_admin_headers,
+#				body = kong_admin_body,
+#			}
+#			httpc = http.new()
+#			httpc:set_timeout(500)
+#			httpc:connect("127.0.0.1", 80)
+#			if ngx.var.request_method == 'POST' then
+#				req_table.path = kong_admin_path
+#				result, err = httpc:request(req_table)
+#			else
+#				req_table.path = kong_admin_path_user
+#				result, err = httpc:request(req_table)
+#				if not result then
+#					req_table.path = kong_admin_path_admin
+#					result, err = httpc:request(req_table)
+#				end
+#			end
+#			if not result then
+#				ngx.log(ngx.ERR, 'subrequest failed: ' .. err)
+#				ngx.exit(ngx.HTTP_BAD_GATEWAY)
+#			end
+#			ngx.status = result.status
+#			--for k,v in pairs(result.headers) do
+#			-- ...
+#			--end
+#			local reader = result.body_reader
+#			repeat
+#				local chunk, err = reader(8192)
+#				if err then
+#					ngx.log(ngx.ERR, 'reading subrequest output failed: ' .. err)
+#					break
+#				end
+#				if chunk then
+#					ngx.print(chunk.body)
+#				end
+#			until not chunk
+#			local ok, err = httpc:set_keepalive()
+#			if not ok then
+#				ngx.log(ngx.INFO, "Failed to set keepalive: " .. err)
+#				return
+#			end
+#		}
+#	}
+#	location ~ ^/v1/(?<table>[a-zA-Z_][a-zA-Z0-9_]+)/_admin/user/?$ {
+#		...
+#	}
+#	vvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+#	location ~ ^/v1/(?<table>[a-zA-Z_][a-zA-Z0-9_]+)/_admin/user/(?<name>[a-zA-Z_]+)/?$ {
+#		include                   snippets/directive-only/acl-methods-hgad.conf;
+#		include                   snippets/directive-only/api-general.conf;
+#		content_by_lua_block {
+#			kong_admin_method = ngx.var.request_method;
+#			if ngx.var.request_method == "PATCH" then
+#				ngx.req.read_body()
+#				local params = js.decode(ngx.var.request_body)
+#				if not params then
+#					ngx.log(ngx.CRIT, "error getting patch args: " .. err)
+#					ngx.exit(ngx.HTTP_BAD_REQUEST)
+#				elseif not params.name or not params.pwdhash then
+#					ngx.log(ngx.CRIT, "patch arg not present")
+#					ngx.exit(ngx.HTTP_BAD_REQUEST)
+#				elseif not string.match(params.name, '^[a-zA-Z_]+$') or not string.match(params.pwdhash, '^[a-zA-Z0-9+/,:!~_=-]+$') then
+#					ngx.log(ngx.CRIT, "invalid patch arg")
+#					ngx.exit(ngx.HTTP_BAD_REQUEST)
+#				elseif params.admin and params.admin ~= 'true' and params.admin ~= 'false' then
+#					ngx.log(ngx.CRIT, "invalid post arg")
+#					ngx.exit(ngx.HTTP_BAD_REQUEST)
+#				end
+#					local is_admin, name, pwdhash, userid
+#				if params.admin == 'true' then
+#					is_admin = true
+#				else
+#					is_admin = false
+#				end
+#				name = params.name
+#				-- pwdhash is a server-side hash of the (hopefully already client-side-hashed) password
+#				pwdhash = bcrypt.digest(params.pwdhash, 12)
+#				local userid =
+#
+#....
+#		}
+#	}
+
+### Timebank
+
+	location ~ ^/v1/(?<db>timebank)/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-db-methods.conf;
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>sector)/?$ {
+		include                   snippets/directive-only/acl-methods-hgo.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $insert_vals      "";
+		set                       $insert_cols      "sectorname";
+		include                   snippets/directive-only/rest-table-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "POST" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params["sectorname"] then
+					ngx.log(ngx.ERR, "post arg not present")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				end
+				ngx.var.insert_vals = pg:escape_literal(params.sectorname)
+				if params.data then
+					ngx.var.insert_cols = ngx.var.insert_cols .. ",data"
+					ngx.var.insert_vals = ngx.var.insert_vals .. "," .. pg:escape_literal(js.encode(params.data))
+				end
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>category)/?$ {
+		include                   snippets/directive-only/acl-methods-hgo.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $insert_vals      "";
+		set                       $insert_cols      "categoryname,sector_id";
+		include                   snippets/directive-only/rest-table-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "POST" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params.categoryname or not params.sectorname then
+					ngx.log(ngx.ERR, "post arg not present")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				end
+				ngx.var.insert_vals = pg:escape_literal(params.categoryname) .. ",(select id from sector where sectorname = " .. pg:escape_literal(params.sectorname) .. ")"
+				if params.data then
+					ngx.var.insert_cols = ngx.var.insert_cols .. ",data"
+					ngx.var.insert_vals = ngx.var.insert_vals .. "," .. pg:escape_literal(js.encode(params.data))
+				end
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>service)/?$ {
+		include                   snippets/directive-only/acl-methods-hgo.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $insert_vals      "";
+		set                       $insert_cols      "servicename,category_id";
+		include                   snippets/directive-only/rest-table-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "POST" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params.servicename or not params.categoryname then
+					ngx.log(ngx.ERR, "post arg not present")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				end
+				ngx.var.insert_vals = pg:escape_literal(params.servicename) .. ",(select id from category where categoryname = " .. pg:escape_literal(params.categoryname) .. ")"
+				if params.data then
+					ngx.var.insert_cols = ngx.var.insert_cols .. ",data"
+					ngx.var.insert_vals = ngx.var.insert_vals .. "," .. pg:escape_literal(js.encode(params.data))
+				end
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>usr)/?$ {
+		include                   snippets/directive-only/acl-methods-hgo.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $insert_vals      "";
+		set                       $insert_cols      "username,email,phone";
+		include                   snippets/directive-only/rest-table-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "POST" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params.username or not params.email or not params.phone then
+					ngx.log(ngx.ERR, "post arg not present")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				end
+				ngx.var.insert_vals = pg:escape_literal(params.username) .. "," .. pg:escape_literal(params.email) .. "," .. pg:escape_literal(params.phone)
+				if params.data then
+					ngx.var.insert_cols = ngx.var.insert_cols .. ",data"
+					ngx.var.insert_vals = ngx.var.insert_vals .. "," .. pg:escape_literal(js.encode(params.data))
+				end
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>provided_service)/?$ {
+		include                   snippets/directive-only/acl-methods-hgo.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $insert_vals      "";
+		set                       $insert_cols      "service_id,usr_id";
+		include                   snippets/directive-only/rest-table-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "POST" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params.servicename or not params.username then
+					ngx.log(ngx.ERR, "post arg not present")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				end
+				ngx.var.insert_vals = "(select id from service where servicename = " .. pg:escape_literal(params.servicename) .. "),(select id from usr where username = " .. pg:escape_literal(params.username) .. ")"
+				if params.data then
+					ngx.var.insert_cols = ngx.var.insert_cols .. ",data"
+					ngx.var.insert_vals = ngx.var.insert_vals .. "," .. pg:escape_literal(js.encode(params.data))
+				end
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>event)/?$ {
+		include                   snippets/directive-only/acl-methods-hgo.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $insert_vals      "";
+		set                       $insert_cols      "starttime,duration,attendees,usr_id,service_id";
+		include                   snippets/directive-only/rest-table-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "POST" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params.starttime or not params.duration or not params.attendees or not params.data or not params.username or not params.servicename then
+					ngx.log(ngx.ERR, "post arg not present")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				end
+				ngx.var.insert_vals = pg:escape_literal(params.starttime) .. "," .. pg:escape_literal(params.duration) .. "," .. pg:escape_literal(params.attendees) .. ",(select id from usr where username = " .. pg:escape_literal(params.username) .. "),(select id from service where servicename = " .. pg:escape_literal(params.servicename) .. ")"
+				if params.data then
+					ngx.var.insert_cols = ngx.var.insert_cols .. ",data"
+					ngx.var.insert_vals = ngx.var.insert_vals .. "," .. pg:escape_literal(js.encode(params.data))
+				end
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>sector)/(?<id>\d+)/?$ {
+		include                   snippets/directive-only/acl-methods-hgud.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $update_str       "";
+		include                   snippets/directive-only/rest-id-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "PUT" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				else
+					if params.sectorname then
+						ngx.var.update_str = ngx.var.update_str .. "sectorname = " .. pg:escape_literal(params.sectorname) .. ","
+					end
+					if params.data then
+						ngx.var.update_str = ngx.var.update_str .. "data = " .. pg:escape_literal(js.encode(params.data)) .. ","
+					end
+				end
+				ngx.var.update_str = ngx.var.update_str .. "modified = current_timestamp"
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>category)/(?<id>\d+)/?$ {
+		include                   snippets/directive-only/acl-methods-hgud.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $update_str       "";
+		include                   snippets/directive-only/rest-id-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "PUT" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				else
+					if params.categoryname then
+						ngx.var.update_str = ngx.var.update_str .. "categoryname = " .. pg:escape_literal(params.categoryname) .. ","
+					end
+					if params.sectorname then
+						ngx.var.update_str = ngx.var.update_str .. "sector_id = (select id from sector where sectorname = " .. pg:escape_literal(params.sectorname) .. "),"
+					end
+					if params.data then
+						ngx.var.update_str = ngx.var.update_str .. "data = " .. pg:escape_literal(js.encode(params.data)) .. ","
+					end
+				end
+				ngx.var.update_str = ngx.var.update_str .. "modified = current_timestamp"
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>service)/(?<id>\d+)/?$ {
+		include                   snippets/directive-only/acl-methods-hgud.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $update_str       "";
+		include                   snippets/directive-only/rest-id-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "PUT" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				else
+					if params.servicename then
+						ngx.var.update_str = ngx.var.update_str .. "servicename = " .. pg:escape_literal(params.servicename) .. ","
+					end
+					if params.categoryname then
+						ngx.var.update_str = ngx.var.update_str .. "category_id = (select id from category where categoryname = " .. pg:escape_literal(params.categoryname) .. "),"
+					end
+					if params.data then
+						ngx.var.update_str = ngx.var.update_str .. "data = " .. pg:escape_literal(js.encode(params.data)) .. ","
+					end
+				end
+				ngx.var.update_str = ngx.var.update_str .. "modified = current_timestamp"
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>usr)/(?<id>\d+)/?$ {
+		include                   snippets/directive-only/acl-methods-hgud.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $update_str       "";
+		include                   snippets/directive-only/rest-id-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "PUT" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				else
+					if params.username then
+						ngx.var.update_str = ngx.var.update_str .. "username = " .. pg:escape_literal(params.username) .. ","
+					end
+					if params.email then
+						ngx.var.update_str = ngx.var.update_str .. "email = " .. pg:escape_literal(params.email) .. ","
+					end
+					if params.phone then
+						ngx.var.update_str = ngx.var.update_str .. "phone = " .. pg:escape_literal(params.phone) .. ","
+					end
+					if params.data then
+						ngx.var.update_str = ngx.var.update_str .. "data = " .. pg:escape_literal(js.encode(params.data)) .. ","
+					end
+				end
+				ngx.var.update_str = ngx.var.update_str .. "modified = current_timestamp"
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>provided_service)/(?<id>\d+)/?$ {
+		include                   snippets/directive-only/acl-methods-hgud.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $update_str       "";
+		include                   snippets/directive-only/rest-id-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "PUT" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				else
+					if params.servicename then
+						ngx.var.update_str = ngx.var.update_str .. "service_id = (select id from service where servicename = " .. pg:escape_literal(params.servicename) .. "),"
+					end
+					if params.username then
+						ngx.var.update_str = ngx.var.update_str .. "usr_id = (select id from usr where username = " .. pg:escape_literal(params.username) .. "),"
+					end
+					if params.data then
+						ngx.var.update_str = ngx.var.update_str .. "data = " .. pg:escape_literal(js.encode(params.data)) .. ","
+					end
+				end
+				ngx.var.update_str = ngx.var.update_str .. "modified = current_timestamp"
+			end
+		}
+	}
+	location ~ ^/v1/(?<db>timebank)/(?<table_name>event)/(?<id>\d+)/?$ {
+		include                   snippets/directive-only/acl-methods-hgud.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $update_str       "";
+		include                   snippets/directive-only/rest-id-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "PUT" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				else
+					if params.starttime then
+						ngx.var.update_str = ngx.var.update_str .. "starttime = " .. pg:escape_literal(params.starttime) .. ","
+					end
+					if params.duration then
+						ngx.var.update_str = ngx.var.update_str .. "duration = " .. pg:escape_literal(params.duration) .. ","
+					end
+					if params.attendees then
+						ngx.var.update_str = ngx.var.update_str .. "attendees = " .. pg:escape_literal(params.attendees) .. ","
+					end
+					if params.username then
+						ngx.var.update_str = ngx.var.update_str .. "usr_id = (select id from usr where username = " .. pg:escape_literal(params.username) .. "),"
+					end
+					if params.servicename then
+						ngx.var.update_str = ngx.var.update_str .. "service_id = (select id from service where servicename = " .. pg:escape_literal(params.servicename) .. "),"
+					end
+					if params.data then
+						ngx.var.update_str = ngx.var.update_str .. "data = " .. pg:escape_literal(js.encode(params.data)) .. ","
+					end
+				end
+				ngx.var.update_str = ngx.var.update_str .. "modified = current_timestamp"
+			end
+		}
+	}
+
+### General NoSQL DBs
+
+#TODO: use postgres-jsonb as much as possible (e.g. "patch" with json-string rather than cjson.decode then update?)
+	location ~ ^/v1/?$ {
+		include                   snippets/directive-only/acl-methods-hgo.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $table_name       "";
+		include                   snippets/directive-only/rest-db-methods.conf;
+		rewrite_by_lua_block {
+			if ngx.req.get_method() == "POST" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.ERR, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params.table_name then
+					ngx.log(ngx.ERR, "post arg not present")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not string.match(params.table_name, '^[a-zA-Z_][a-zA-Z0-9_]*$') then
+					ngx.log(ngx.ERR, "invalid param")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				else
+					ngx.var.table_name = pg:escape_identifier(params.table_name)
+				end
+			end
+		}
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/?$ {
+		include                   snippets/directive-only/acl-methods-hgoud.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $insert_vals      "";
+		set                       $insert_cols      "title,data";
+		set                       $update_str       "";
+		set                       $new_table_name   "";
+		include                   snippets/directive-only/rest-table-methods.conf;
+		rewrite_by_lua_block {
+			--TODO: check if table even exists first, otherwise SELECT throws a 500 error
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			if ngx.var.request_method == "POST" or ngx.var.request_method == "PUT" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.CRIT, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif ngx.var.request_method == "POST" then
+					if not params.title or params.data == nil then
+						ngx.log(ngx.CRIT, "post arg not present")
+						ngx.exit(ngx.HTTP_BAD_REQUEST)
+					end
+					ngx.var.insert_vals = pg:escape_literal(params.title) .. "," .. pg:escape_literal(js.encode(params.data))
+				else -- > elseif ngx.var.request_method == "PUT" then
+					if not params.new_table_name then
+						ngx.log(ngx.CRIT, "post arg not present")
+						ngx.exit(ngx.HTTP_BAD_REQUEST)
+					end
+					ngx.var.table_name = pg:escape_identifier(params.new_table_name)
+				end
+			end
+		}
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/_recurse/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-table-recurse-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/(?<id>\d+)/?$ {
+		include                   snippets/directive-only/acl-methods-hgud.conf;
+		include                   snippets/directive-only/api-general.conf;
+		set                       $update_str       "";
+		include                   snippets/directive-only/rest-id-methods.conf;
+		rewrite_by_lua_block {
+			ngx.var.table_name = pg:escape_identifier(ngx.var.table_name)
+			ngx.var.id = pg:escape_literal(ngx.var.id)
+			if ngx.var.request_method == "PUT" then
+				ngx.req.read_body()
+				local raw_params = ngx.var.request_body
+				local params = js.decode(raw_params)
+				if not raw_params then
+					ngx.log(ngx.CRIT, "error getting raw post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params then
+					ngx.log(ngx.CRIT, "error getting post args")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				elseif not params.title or params.data == nil then
+					ngx.log(ngx.CRIT, "post arg not present")
+					ngx.exit(ngx.HTTP_BAD_REQUEST)
+				else
+					ngx.var.update_str = ngx.var.update_str .. "title = " .. pg:escape_literal(params.title) .. ","
+					ngx.var.update_str = ngx.var.update_str .. "data = " .. pg:escape_literal(js.encode(params.data)) .. ","
+				end
+				ngx.var.update_str = ngx.var.update_str .. "modified = current_timestamp"
+			end
+		}
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/_all/title/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-all-title-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/(?<id>\d+)/title/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-id-title-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/_all/data/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-all-data-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/(?<id>\d+)/data/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-id-data-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/_all/created/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-all-created-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/(?<id>\d+)/created/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-id-created-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/_all/modified/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-all-modified-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/(?<id>\d+)/modified/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-id-modified-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/_all/data/(?<field>[a-zA-Z_][a-zA-Z0-9_]*)/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-all-data-field-methods.conf;
+	}
+	location ~ ^/v1/(?<table_name>[a-zA-Z_][a-zA-Z0-9_]*)/(?<id>\d+)/data/(?<field>[a-zA-Z_][a-zA-Z0-9_]*)/?$ {
+		include                   snippets/directive-only/acl-methods-hg.conf;
+		include                   snippets/directive-only/api-general.conf;
+		include                   snippets/directive-only/rest-id-data-field-methods.conf;
+	}
+
+	location / {
+		include                   snippets/directive-only/logging-minimal.conf;
+		deny                      all;
+	}
+}

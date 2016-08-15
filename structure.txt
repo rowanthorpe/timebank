@@ -1,0 +1,194 @@
+REST URI EXAMPLES
+=================
+
+ * [prefix] is https://db.[domain]/api/v1/timebank
+ * all output for HEAD, GET is json
+ * all input for POST, PUT is json
+ * "id" column is defined by URI, can not be included as
+   field in input
+ * "created" and "modified" columns are calculated
+   automatically, can not be included as fields in input
+ * "pin" column in "usr" table is optional, and is sha256
+   hashed 4-digit pin
+
+ GET [prefix]
+  -> list tables in DB
+
+ GET [prefix]/sector
+  -> list sector IDs
+ POST [prefix]/sector
+  -> add new sector entry with new ID
+
+ GET [prefix]/sector/1
+  -> show entry for sector ID 1
+ PUT [prefix]/sector/1
+  -> modify entry for sector ID 1
+ DELETE [prefix]/sector/1
+  -> delete entry for sector ID 1
+
+--------
+
+DB OVERVIEW
+===========
+
+|    Table Name    |
++------------------+
+| sector           |
+| category         |
+| service          |
+| usr              |
+| provided_service |
+| event            |
+
+--------
+
+TABLES
+======
+
+sector
+------
+
+   Column   |           Type           |                      Modifiers
+------------+--------------------------+-----------------------------------------------------
+ id         | smallint                 | not null default nextval('sector_id_seq'::regclass)
+ sectorname | character varying(128)   | not null
+ created    | timestamp with time zone | not null default now()
+ modified   | timestamp with time zone | not null default now()
+ data       | jsonb                    | not null default '{}'::jsonb
+
+Indexes:
+    "sector_pkey" PRIMARY KEY, btree (id)
+    "sector_sectorname_key" UNIQUE CONSTRAINT, btree (sectorname)
+    "sector_gin" gin (data)
+
+Referenced by:
+    TABLE "category" CONSTRAINT "category_sector_id_fkey" FOREIGN KEY (sector_id) REFERENCES sector(id)
+
+----
+
+category
+--------
+
+    Column    |           Type           |                       Modifiers
+--------------+--------------------------+-------------------------------------------------------
+ id           | smallint                 | not null default nextval('category_id_seq'::regclass)
+ categoryname | character varying(128)   | not null
+ sector_id    | smallint                 | not null
+ created      | timestamp with time zone | not null default now()
+ modified     | timestamp with time zone | not null default now()
+ data         | jsonb                    | not null default '{}'::jsonb
+
+Indexes:
+    "category_pkey" PRIMARY KEY, btree (id)
+    "category_categoryname_key" UNIQUE CONSTRAINT, btree (categoryname)
+    "category_gin" gin (data)
+
+Foreign-key constraints:
+    "category_sector_id_fkey" FOREIGN KEY (sector_id) REFERENCES sector(id)
+
+Referenced by:
+    TABLE "service" CONSTRAINT "service_category_id_fkey" FOREIGN KEY (category_id) REFERENCES category(id)
+
+----
+
+service
+-------
+
+   Column    |           Type           |                      Modifiers
+-------------+--------------------------+------------------------------------------------------
+ id          | smallint                 | not null default nextval('service_id_seq'::regclass)
+ servicename | character varying(128)   | not null
+ category_id | smallint                 | not null
+ created     | timestamp with time zone | not null default now()
+ modified    | timestamp with time zone | not null default now()
+ data        | jsonb                    | not null default '{}'::jsonb
+
+Indexes:
+    "service_pkey" PRIMARY KEY, btree (id)
+    "service_servicename_key" UNIQUE CONSTRAINT, btree (servicename)
+    "service_gin" gin (data)
+
+Foreign-key constraints:
+    "service_category_id_fkey" FOREIGN KEY (category_id) REFERENCES category(id)
+
+Referenced by:
+    TABLE "event" CONSTRAINT "event_service_id_fkey" FOREIGN KEY (service_id) REFERENCES service(id)
+    TABLE "provided_service" CONSTRAINT "provided_service_service_id_fkey" FOREIGN KEY (service_id) REFERENCES service(id)
+
+----
+
+usr
+---
+
+  Column  |           Type           |                    Modifiers
+----------+--------------------------+--------------------------------------------------
+ id       | smallint                 | not null default nextval('usr_id_seq'::regclass)
+ username | character varying(32)    | not null
+ email    | character varying(254)   | not null
+ phone    | character varying(15)    | not null
+ pin      | bytea                    |
+ created  | timestamp with time zone | not null default now()
+ modified | timestamp with time zone | not null default now()
+ data     | jsonb                    | not null default '{}'::jsonb
+
+Indexes:
+    "usr_pkey" PRIMARY KEY, btree (id)
+    "usr_username_key" UNIQUE CONSTRAINT, btree (username)
+    "usr_email_key" UNIQUE CONSTRAINT, btree (email)
+    "usr_phone_key" UNIQUE CONSTRAINT, btree (phone)
+    "usr_gin" gin (data)
+
+Check constraints:
+    "usr_email_check" CHECK (email::text ~ '.*@.*\..*'::text)
+    "usr_phone_check" CHECK (phone::text ~ '^[0-9]+$'::text)
+
+Referenced by:
+    TABLE "event" CONSTRAINT "event_usr_id_fkey" FOREIGN KEY (usr_id) REFERENCES usr(id)
+    TABLE "provided_service" CONSTRAINT "provided_service_usr_id_fkey" FOREIGN KEY (usr_id) REFERENCES usr(id)
+
+----
+
+provided_service
+----------------
+
+   Column   |           Type           |                           Modifiers
+------------+--------------------------+---------------------------------------------------------------
+ id         | smallint                 | not null default nextval('provided_service_id_seq'::regclass)
+ service_id | smallint                 | not null
+ usr_id     | smallint                 | not null
+ created    | timestamp with time zone | not null default now()
+ modified   | timestamp with time zone | not null default now()
+ data       | jsonb                    | not null default '{}'::jsonb
+
+Indexes:
+    "provided_service_pkey" PRIMARY KEY, btree (id)
+    "provided_service_gin" gin (data)
+
+Foreign-key constraints:
+    "provided_service_service_id_fkey" FOREIGN KEY (service_id) REFERENCES service(id)
+    "provided_service_usr_id_fkey" FOREIGN KEY (usr_id) REFERENCES usr(id)
+
+----
+
+event
+-----
+
+   Column   |           Type           |                     Modifiers
+------------+--------------------------+----------------------------------------------------
+ id         | integer                  | not null default nextval('event_id_seq'::regclass)
+ starttime  | timestamp with time zone | not null
+ duration   | smallint                 | not null
+ attendees  | smallint                 | not null
+ usr_id     | smallint                 | not null
+ service_id | smallint                 | not null
+ created    | timestamp with time zone | not null default now()
+ modified   | timestamp with time zone | not null default now()
+ data       | jsonb                    | not null default '{}'::jsonb
+
+Indexes:
+    "event_pkey" PRIMARY KEY, btree (id)
+    "event_gin" gin (data)
+
+Foreign-key constraints:
+    "event_service_id_fkey" FOREIGN KEY (service_id) REFERENCES service(id)
+    "event_usr_id_fkey" FOREIGN KEY (usr_id) REFERENCES usr(id)

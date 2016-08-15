@@ -1,0 +1,186 @@
+#  Copyright (C) 2016 Open Lab Athens.
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#  @license GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>
+#
+#
+#  Changes
+#
+#  15-8-2016: Rowan Thorpe <rowan@rowanthorpe.com>: Original commit
+
+# Kong (hand-merged from output of "customkong compile")
+
+server {
+	listen                                    [::]:80;
+	server_name                               ~^(?<subdomain>api)\.(?<domain>[DOMAIN])\.(?<tld>org|com|gr)$;
+	include                                   snippets/location/protect-system-files.conf;
+	include                                   snippets/location/well-known-dir.conf;
+	include                                   snippets/location/redirect-to-https.conf;
+}
+
+server {
+#	listen                                    [::]:8443 ipv6only=off ssl http2 deferred backlog=4096 default_server;
+#	server_name                               kong;
+	listen                                    [::]:443;
+	server_name                               api.[DOMAIN].org;
+	error_page                                404 408 411 412 413 414 417 /kong_error_handler;
+	error_page                                500 502 503 504 /kong_error_handler;
+#	ssl_certificate                           /etc/letsencrypt/live/[DOMAIN].org/fullchain.pem;
+#	ssl_certificate_key                       /etc/letsencrypt/live/[DOMAIN].org/privkey.pem;
+#	ssl_protocols                             TLSv1 TLSv1.1 TLSv1.2;
+#	ssl_certificate_by_lua_block {
+#		kong.ssl_certificate()
+#	}
+	more_set_headers                          "cache-control: no-store";
+#	more_set_headers                          "vary: origin,host,authorization,apikey";
+	more_clear_headers                        "vary";
+
+	include                                   snippets/location/protect-system-files.conf;
+	include                                   snippets/location/well-known-dir.conf;
+	include                                   snippets/location/jwtauth.conf;
+	location = /favicon.ico {
+		include                           snippets/directive-only/acl-methods-hg.conf;
+		include                           snippets/directive-only/acl-devel.conf;
+		include                           snippets/directive-only/limit-slow.conf;
+		include                           snippets/directive-only/logging-minimal.conf;
+		expires                           24h;
+		return 204                        '';
+	}
+	location = /robots.txt {
+		include                           snippets/directive-only/acl-methods-hg.conf;
+		include                           snippets/directive-only/limit-slow.conf;
+		include                           snippets/directive-only/logging-minimal.conf;
+		expires                           1h;
+		return 200                        'User-agent: *\nDisallow: /';
+	}
+	location / {
+		# logging -is-*was* to /usr/local/share/kong as this -is-*was* the "kong" bit (pre-merge-to-main-nginx-process)
+		set $upstream_host nil;
+		set $upstream_url nil;
+		access_by_lua_block {
+			kong.access()
+		}
+		proxy_set_header                  X-Real-IP $remote_addr;
+		proxy_set_header                  X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header                  X-Forwarded-Proto $scheme;
+		proxy_set_header                  Host $upstream_host;
+		proxy_pass_header                 Server;
+		proxy_pass                        $upstream_url;
+		header_filter_by_lua_block {
+			kong.header_filter()
+		}
+		body_filter_by_lua_block {
+			kong.body_filter()
+		}
+		log_by_lua_block {
+			kong.log()
+		}
+	}
+	location = /kong_error_handler {
+		internal;
+		content_by_lua_block {
+			require('kong.core.error_handlers')(ngx)
+		}
+	}
+}
+
+server {
+	server_name                 kong_admin;
+	listen                      [::]:8101 ipv6only=off deferred backlog=4096 default_server;
+	client_max_body_size        10m;
+	client_body_buffer_size     10m;
+	location / {
+		default_type        application/json;
+		header_filter_by_lua_block {
+			local m = ngx.req.get_method()
+			if m == 'GET' or m == 'POST' then
+				ngx.header['Access-Control-Allow-Origin'] = ngx.var.http_origin
+				ngx.header['Access-Control-Allow-Credentials'] = 'true'
+			elseif m == 'OPTIONS' then
+				ngx.header['Access-Control-Allow-Origin'] = ngx.var.http_origin
+				ngx.header['Access-Control-Allow-Credentials'] = 'true'
+				ngx.header['Access-Control-Max-Age'] = '1728000'
+				--ngx.header['Access-Control-Max-Age'] = '30'
+				ngx.header['Access-Control-Allow-Methods'] = 'HEAD,GET,POST,PUT,PATCH,DELETE,OPTIONS'
+				ngx.header['Access-Control-Allow-Headers'] = 'Authorization,Content-Type,Accept,Origin,User-Agent,DNT,Cache-Control,X-Mx-ReqToken,Keep-Alive,X-Requested-With,If-Modified-Since'
+				ngx.header['Content-Length'] = '0'
+				ngx.header['Content-Type'] = 'text/plain charset=UTF-8'
+			end
+		}
+		access_by_lua_block {
+			if ngx.req.get_method() == 'OPTIONS' then
+				ngx.exit(204)
+			end
+		}
+		content_by_lua_block {
+			ngx.log(ngx.DEBUG, 'Loading Admin API endpoints')
+			require('lapis').serve('kong.api')
+		}
+	}
+	location /nginx_status {
+		internal;
+		access_log off;
+		stub_status;
+	}
+	location /robots.txt {
+		return 200 'User-agent: *\nDisallow: /';
+	}
+}
+
+#######
+
+##TODO: When kong is handling api.[DOMAIN].org:443 directly (most likely has to assimilate main server and kong server into one nginx config/process)
+##      then remove this stub redirector
+#server {
+##	listen                                    [::]:80;
+#	listen                                    [::]:443;
+#	server_name                               ~^(?<subdomain>api)\.(?<domain>[DOMAIN])\.(?<tld>org|com|gr)$;
+#	include                                   snippets/location/protect-system-files.conf;
+#	include                                   snippets/location/well-known-dir.conf;
+#	location / {
+#		proxy_buffering                off;
+#		proxy_cache_bypass             1;
+#		proxy_connect_timeout          30s;
+#		proxy_cookie_domain            $proxy_host               $server_name;
+#		proxy_http_version             1.1;
+#		proxy_intercept_errors         on;
+#		proxy_next_upstream            error timeout invalid_header http_500 http_502 http_503 http_504;
+#		proxy_no_cache                 1;
+#		proxy_read_timeout             30;
+#		proxy_redirect                 https://                  https://;
+#		proxy_request_buffering        off;
+#		proxy_send_timeout             30s;
+#		proxy_set_header               Accept-Encoding           "";
+#		proxy_set_header               Forwarded                 'for=$proxy_add_x_forwarded_for; proto=https';
+#		proxy_set_header               Front-End-Https           on;
+#		proxy_set_header               Host                      $server_name;
+##		proxy_set_header               X-Forwarded-For           $remote_addr;
+#		proxy_set_header               X-Forwarded-For           $proxy_add_x_forwarded_for;
+#		proxy_set_header               X-Forwarded-Ssl           on;
+#		proxy_set_header               X-Forwarded-Proto         https;
+#		proxy_set_header               X-Real-IP                 $remote_addr;
+#		proxy_set_header               X-Forwarded-Proto-Version $http2;
+#		proxy_temp_path                /tmp/nginx-proxy;
+#
+#		proxy_pass                     https://api.[DOMAIN].org:8443;
+#	}
+##	set                                       $new_scheme       "https";
+##	set                                       $new_subdomain    $subdomain;
+##	set                                       $new_domain       $domain;
+##	set                                       $new_tld          "org";
+##	set                                       $new_server_port  "8443";
+##	set                                       $new_request_uri  $request_uri;
+##	include                                   snippets/location/redirect-temp.conf;
+#}

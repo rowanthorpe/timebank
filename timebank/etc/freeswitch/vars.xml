@@ -1,0 +1,148 @@
+<!--
+
+  Copyright (C) 2016 Open Lab Athens.
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+  @license GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>
+
+
+  Changes
+
+  15-8-2016: Rowan Thorpe <rowan@rowanthorpe.com>: Original commit
+
+-->
+
+<include>
+  <!--
+    Runtime-dynamically set vars:
+      base_dir
+      cache_dir
+      certs_dir
+      conf_dir
+      core_uuid
+      db_dir
+      grammar_dir
+      hostname
+      htdocs_dir
+      local_ip_v4
+      local_ip_v6
+      local_mask_v4
+      log_dir
+      mod_dir
+      nat_private_addr
+      nat_public_addr
+      nat_type
+      recordings_dir
+      run_dir
+      script_dir
+      sound_prefix
+      sounds_dir
+      storage_dir
+      switch_serial
+      temp_dir
+      zrtp_enabled
+  -->
+  <X-PRE-PROCESS cmd="set" data="script_dir=/usr/local/share/freeswitch/scripts"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider=-------------"/>
+  <X-PRE-PROCESS cmd="set" data="did_number=30211-------------"/>
+  <X-PRE-PROCESS cmd="set" data="public_ip_v4=-------------"/>
+  <X-PRE-PROCESS cmd="set" data="local_ip_v4=-------------"/>
+  <X-PRE-PROCESS cmd="set" data="external_ip_v4=-------------"/>
+  <X-PRE-PROCESS cmd="set" data="call_debug=true"/> <!-- set to false for production usage -->
+
+  <!-- viva.gr (minus G729) -->
+  <!-- <XX-PRE-PROCESS cmd="set" data="codec_prefs=G726-32@40i,GSM@40i,PCMA@40i,PCMU@40i"/> NB: _sometimes_ these needed 40i... -->
+  <X-PRE-PROCESS cmd="set" data="codec_prefs=G726-32,GSM,PCMA,PCMU"/>
+  <!-- didlogic.com (minus G729)
+  <XX-PRE-PROCESS cmd="set" data="codec_prefs=G722,PCMU,GSM"/>
+  -->
+  <!--
+  <XX-PRE-PROCESS cmd="set" data="global_codec_prefs=PCMA,PCMU,GSM"/>
+  <XX-PRE-PROCESS cmd="set" data="outbound_codec_prefs=PCMA,PCMU,GSM"/>
+  -->
+
+  <X-PRE-PROCESS cmd="set" data="console_loglevel=all"/>
+  <X-PRE-PROCESS cmd="set" data="default_password=-------------"/>
+  <X-PRE-PROCESS cmd="set" data="default_profile_name=URL"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_auth_calls=false"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_auth_network=127.0.0.1/32"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_from_domain=$${default_provider}"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_password=-------------"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_upstream_network=-------------"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_sip_port=5082"/> <!-- TODO: proxy port = 5080 when using nginx..? -->
+  <X-PRE-PROCESS cmd="set" data="default_provider_user_name=$${did_number}"/>
+  <X-PRE-PROCESS cmd="set" data="domain=$${public_ip_v4}"/>
+  <X-PRE-PROCESS cmd="set" data="domain_name=$${domain}"/>
+  <X-PRE-PROCESS cmd="set" data="hold_music=local_stream://moh"/>
+  <X-PRE-PROCESS cmd="set" data="outbound_caller_name=$${did_number}"/>
+  <X-PRE-PROCESS cmd="set" data="outbound_caller_number=$${did_number}"/>
+  <X-PRE-PROCESS cmd="set" data="presence_privacy=false"/>
+  <X-PRE-PROCESS cmd="set" data="sip_port=5062"/>
+  <X-PRE-PROCESS cmd="set" data="sound_prefix=$${sounds_dir}/en/us/callie"/>
+  <X-PRE-PROCESS cmd="set" data="syslog_loglevel=all"/>
+  <X-PRE-PROCESS cmd="set" data="unroll_loops=true"/>
+  <!-- NB:
+   So that freeswitch doesn't have to deal with tls directly (and to gain the
+   flexibility/robustness benefits of nginx being in front of freeswitch's signalling port)
+   nginx will proxy tcp signalling:
+     5080(tcp)     -> 5082(tcp)
+     5081(tls:tcp) -> 5082(tcp)
+   and (requires nginx >=1.9.13, with udp load-balancing functionality) will also proxy:
+     5080(udp)     -> 5082(udp)
+   It could be useful to proxy the rtp ports (UDP 8000-8500) when redirecting to slave machines,
+   but on the same host that seems like overkill.
+   If you want TLS but don't want nginx proxying to freeswitch disable the nginx configuration,
+   and use the following instead (change >1 Xs to 1 X, normal xml-comments don't work for
+   preprocessing).
+   <XX-PRE-PROCESS cmd="set" data="ssl_dir=/etc/ssl"/>
+   <XX-PRE-PROCESS cmd="set" data="default_provider_ssl_dir=/etc/ssl"/>
+   <XX-PRE-PROCESS cmd="set" data="default_provider_sip_port=5080"/>
+   <XX-PRE-PROCESS cmd="set" data="default_provider_tls_port=5081"/>
+   <XX-PRE-PROCESS cmd="set" data="sip_port=5060"/>
+   <XX-PRE-PROCESS cmd="set" data="tls_port=5061"/>
+  -->
+
+  <X-PRE-PROCESS cmd="set" data="au-ring=%(400,200,383,417);%(400,2000,383,417)"/>
+  <X-PRE-PROCESS cmd="set" data="be-ring=%(1000,3000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="ca-ring=%(2000,4000,440,480)"/>
+  <X-PRE-PROCESS cmd="set" data="cn-ring=%(1000,4000,450)"/>
+  <X-PRE-PROCESS cmd="set" data="cy-ring=%(1500,3000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="cz-ring=%(1000,4000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="de-ring=%(1000,4000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="dk-ring=%(1000,4000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="dz-ring=%(1500,3500,425)"/>
+  <X-PRE-PROCESS cmd="set" data="eg-ring=%(2000,1000,475,375)"/>
+  <X-PRE-PROCESS cmd="set" data="es-ring=%(1500,3000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="fi-ring=%(1000,4000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="fr-ring=%(1500,3500,440)"/>
+  <X-PRE-PROCESS cmd="set" data="gr-ring=%(1500,3500,440.0,0.0)"/>
+  <X-PRE-PROCESS cmd="set" data="hk-ring=%(400,200,440,480);%(400,3000,440,480)"/>
+  <X-PRE-PROCESS cmd="set" data="hu-ring=%(1250,3750,425)"/>
+  <X-PRE-PROCESS cmd="set" data="il-ring=%(1000,3000,400)"/>
+  <X-PRE-PROCESS cmd="set" data="in-ring=%(400,200,425,375);%(400,2000,425,375)"/>
+  <X-PRE-PROCESS cmd="set" data="jp-ring=%(1000,2000,420,380)"/>
+  <X-PRE-PROCESS cmd="set" data="ko-ring=%(1000,2000,440,480)"/>
+  <X-PRE-PROCESS cmd="set" data="pk-ring=%(1000,2000,400)"/>
+  <X-PRE-PROCESS cmd="set" data="pl-ring=%(1000,4000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="ro-ring=%(1850,4150,475,425)"/>
+  <X-PRE-PROCESS cmd="set" data="rs-ring=%(1000,4000,425)"/>
+  <X-PRE-PROCESS cmd="set" data="ru-ring=%(800,3200,425)"/>
+  <X-PRE-PROCESS cmd="set" data="sa-ring=%(1200,4600,425)"/>
+  <X-PRE-PROCESS cmd="set" data="tr-ring=%(2000,4000,450)"/>
+  <X-PRE-PROCESS cmd="set" data="uk-ring=%(400,200,400,450);%(400,2000,400,450)"/>
+  <X-PRE-PROCESS cmd="set" data="us-ring=%(2000,4000,440,480)"/>
+  <X-PRE-PROCESS cmd="set" data="bong-ring=v=-7;%(100,0,941.0,1477.0);v=-7;>=2;+=.1;%(1400,0,350,440)"/>
+  <X-PRE-PROCESS cmd="set" data="sit=%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7)"/>
+</include>

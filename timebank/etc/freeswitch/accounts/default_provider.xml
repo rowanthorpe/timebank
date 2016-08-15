@@ -1,0 +1,80 @@
+<!--
+
+  Copyright (C) 2016 Open Lab Athens.
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+  @license GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>
+
+
+  Changes
+
+  15-8-2016: Rowan Thorpe <rowan@rowanthorpe.com>: Original commit
+
+-->
+
+<include>
+  <gateway name="$${default_provider}">
+    <param name="username" value="$${default_provider_user_name}"/>
+    <param name="realm" value="$${default_provider}"/>
+    <!-- <param name="from-domain" value="$${default_provider_from_domain}"/> -->
+    <param name="password" value="$${default_provider_password}"/>
+    <!-- <param name="proxy" value="$${default_provider}"/> -->
+    <!-- <param name="expire-seconds" value="300"/> -->
+    <param name="register" value="true"/>
+    <param name="register-transport" value="tcp"/>
+    <!-- <param name="retry-seconds" value="6"/> -->
+    <param name="log-auth-failures" value="true"/>
+    <param name="contact-params" value="tport=tcp"/>
+    <param name="ping" value="25"/>
+    <param name="context" value="public"/>
+    <!-- <param name="extension" value="$${did_number}"/> -->
+    <!-- <param name="from-user" value="$${default_provider_user_name}"/> -->
+    <!-- <param name="register-proxy" value="$${default_provider}"/> -->
+    <!-- <param name="caller-id-in-from" value="true"/> -->
+    <!-- <param name="challenge-realm" value="auto_from"/> -->
+    <!-- <param name="force-register-domain" value="$${default_provider}"/> -->
+    <!-- <param name="force-subscription-domain" value="$${default_provider}"/> -->
+    <!-- <param name="force-register-db-domain" value="$${default_provider}"/> -->
+    <!-- <param name="disable-transcoding" value="true"/> -->
+    <!-- <param name="inbound-late-negotiation" value="false"/> -->
+  </gateway>
+<!--
+  <gateway name="$${default_provider}">
+    <param name="username" value="$${default_provider_user_name}"/>
+    <param name="realm" value="$${default_provider}"/>
+    <param name="from-domain" value="$${default_provider_from_domain}"/>
+    <param name="password" value="$${default_provider_password}"/>
+    <param name="proxy" value="$${default_provider}"/>
+    <param name="expire-seconds" value="300"/>
+    <param name="register" value="true"/>
+    <param name="register-transport" value="tcp"/>
+    <param name="retry-seconds" value="6"/>
+    <param name="log-auth-failures" value="true"/>
+    <param name="contact-params" value="tport=tcp"/>
+    <param name="context" value="public"/>
+    < ! - - <param name="extension" value="$${did_number}"/> - - >
+    < ! - - <param name="from-user" value="$${default_provider_user_name}"/> - - >
+    < ! - - <param name="register-proxy" value="$${default_provider}"/> - - >
+    < ! - - <param name="caller-id-in-from" value="true"/> - - >
+    < ! - - <param name="ping" value="25"/> - - >
+    < ! - - <param name="challenge-realm" value="auto_from"/> - - >
+    < ! - - <param name="force-register-domain" value="$${default_provider}"/> - - >
+    < ! - - <param name="force-subscription-domain" value="$${default_provider}"/> - - >
+    < ! - - <param name="force-register-db-domain" value="$${default_provider}"/> - - >
+    < ! - - <param name="disable-transcoding" value="true"/> - - >
+    < ! - - <param name="inbound-late-negotiation" value="false"/> - - >
+  </gateway>
+-->
+</include>
